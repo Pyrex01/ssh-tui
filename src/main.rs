@@ -496,6 +496,27 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
+    // Navigation help text
+    lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
+    let _s2050_17 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s2050_17, normal_style),
+        Span::styled("⌨  Navigation: ", dim_style),
+        Span::styled("[↑/↓]", accent_cyan),
+        Span::styled(" or ", dim_style),
+        Span::styled("[j/k]", accent_cyan),
+        Span::styled(" Scroll  ", dim_style),
+        Span::styled("[Home/End]", accent_cyan),
+        Span::styled(" or ", dim_style),
+        Span::styled("[g/G]", accent_cyan),
+        Span::styled(" Jump  ", dim_style),
+        Span::styled("[Q]", accent_yellow),
+        Span::styled(" Quit", dim_style),
+    ]));
+    lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
+    let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
+    
     // Contact information with icons
     let _s3389 = format!("{}  📧 CONTACT INFORMATION", border_side);
     lines.push(Line::from(vec![Span::styled(_s3389, section_style)]));
@@ -872,25 +893,6 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![Span::styled(_s_languages, normal_style)]));
     let _s7209 = format!("{}  • Built custom network routing systems for Kubernetes", border_side);
     lines.push(Line::from(vec![Span::styled(_s7209, normal_style)]));
-    lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
-    let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
-    lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
-    let _s2050_17 = format!("{}  ", border_side);
-    lines.push(Line::from(vec![
-        Span::styled(_s2050_17, normal_style),
-        Span::styled("⌨  Navigation: ", dim_style),
-        Span::styled("[↑/↓]", accent_cyan),
-        Span::styled(" or ", dim_style),
-        Span::styled("[j/k]", accent_cyan),
-        Span::styled(" Scroll  ", dim_style),
-        Span::styled("[Home/End]", accent_cyan),
-        Span::styled(" or ", dim_style),
-        Span::styled("[g/G]", accent_cyan),
-        Span::styled(" Jump  ", dim_style),
-        Span::styled("[Q]", accent_yellow),
-        Span::styled(" Quit", dim_style),
-    ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_bottom_start, border_line, border_bottom_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
