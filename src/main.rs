@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, mpsc};
+use std::collections::VecDeque;
 
 // SSH Server handler
 #[derive(Clone)]
@@ -116,71 +117,92 @@ async fn run_ssh_tui(
     terminal_size: Arc<Mutex<(u16, u16)>>,
 ) -> Result<()> {
     let mut should_quit = false;
+    let mut input_buffer = VecDeque::<u8>::new();
+    let mut needs_redraw = true;
     
     loop {
-        // Get current terminal size
-        let (width, height) = *terminal_size.lock().await;
-        
-        // Get current connection count
-        let connections = connection_count.load(Ordering::Relaxed);
-        
-        // Create the TUI content
-        let message = format!(
-            "Hello World!\n\nCombining:\n  • ratatui - Terminal UI framework\n  • russh - SSH client/server library\n  • tokio - Async runtime\n\nSSH Server Status:\n  • Active connections: {}\n  • Terminal size: {}x{}\n\nPress 'q' to quit",
-            connections, width, height
-        );
-        
-        // Create a buffer to render to
-        let area = Rect::new(0, 0, width, height);
-        let mut buffer = Buffer::empty(area);
-        
-        // Render the UI using ratatui
-        {
-            let paragraph = Paragraph::new(message.as_str())
-                .block(
-                    Block::default()
-                        .title("SSH TUI Hello World")
-                        .borders(Borders::ALL)
-                )
-                .wrap(Wrap { trim: true })
-                .alignment(Alignment::Left);
-            
-            paragraph.render(area, &mut buffer);
+        // Check for input first (non-blocking)
+        while let Ok(data) = input_rx.try_recv() {
+            input_buffer.extend(data);
+            needs_redraw = true;
         }
         
-        // Convert buffer to ANSI escape sequences and send to SSH channel
-        let output = render_buffer_to_ansi(&buffer, width, height);
-        if let Err(e) = handle.data(channel_id, CryptoVec::from(output.as_bytes())).await {
-            eprintln!("Error sending data to channel: {e:#?}");
+        // Process buffered input to extract complete key events
+        while let Some(key_event) = parse_ssh_input_from_buffer(&mut input_buffer) {
+            match key_event.code {
+                KeyCode::Char('q') | KeyCode::Char('Q') => {
+                    should_quit = true;
+                    break;
+                }
+                _ => {
+                    // Handle other keys if needed
+                }
+            }
+        }
+        
+        if should_quit {
+            // Send goodbye message before quitting
+            let goodbye = "\x1b[2J\x1b[HGoodbye! Connection closing...\r\n";
+            let _ = handle.data(channel_id, CryptoVec::from(goodbye.as_bytes())).await;
             break;
         }
         
-        // Check for input with timeout
-        tokio::select! {
+        // Only redraw if needed or periodically
+        if needs_redraw {
+            // Get current terminal size
+            let (width, height) = *terminal_size.lock().await;
+            
+            // Get current connection count
+            let connections = connection_count.load(Ordering::Relaxed);
+            
+            // Create the TUI content
+            let message = format!(
+                "Hello World!\n\nCombining:\n  • ratatui - Terminal UI framework\n  • russh - SSH client/server library\n  • tokio - Async runtime\n\nSSH Server Status:\n  • Active connections: {}\n  • Terminal size: {}x{}\n\nPress 'q' to quit",
+                connections, width, height
+            );
+            
+            // Create a buffer to render to
+            let area = Rect::new(0, 0, width, height);
+            let mut buffer = Buffer::empty(area);
+            
+            // Render the UI using ratatui
+            {
+                let paragraph = Paragraph::new(message.as_str())
+                    .block(
+                        Block::default()
+                            .title("SSH TUI Hello World")
+                            .borders(Borders::ALL)
+                    )
+                    .wrap(Wrap { trim: true })
+                    .alignment(Alignment::Left);
+                
+                paragraph.render(area, &mut buffer);
+            }
+            
+            // Convert buffer to ANSI escape sequences and send to SSH channel
+            let output = render_buffer_to_ansi(&buffer, width, height);
+            if let Err(e) = handle.data(channel_id, CryptoVec::from(output.as_bytes())).await {
+                eprintln!("Error sending data to channel: {e:#?}");
+                break;
+            }
+        }
+        
+        // Wait for input or timeout
+        needs_redraw = tokio::select! {
             input = input_rx.recv() => {
                 if let Some(data) = input {
-                    // Parse input as keyboard events
-                    if let Some(key_event) = parse_ssh_input(&data) {
-                        match key_event.code {
-                            KeyCode::Char('q') | KeyCode::Char('Q') => {
-                                should_quit = true;
-                            }
-                            _ => {}
-                        }
-                    }
+                    input_buffer.extend(data);
+                    true // Need redraw after input
                 } else {
                     // Channel closed
                     break;
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                // Timeout - continue to next render
+                // Periodic redraw to update connection count
+                true
             }
-        }
-        
-        if should_quit {
-            break;
-        }
+        };
     }
     
     Ok(())
@@ -295,28 +317,126 @@ fn modifier_to_ansi(modifier: ratatui::style::Modifier) -> String {
     }
 }
 
-// Parse SSH input bytes into a KeyEvent
-fn parse_ssh_input(data: &[u8]) -> Option<event::KeyEvent> {
-    if data.is_empty() {
+// Parse SSH input from a buffer, extracting complete key events
+fn parse_ssh_input_from_buffer(buffer: &mut VecDeque<u8>) -> Option<event::KeyEvent> {
+    if buffer.is_empty() {
         return None;
     }
     
-    // Simple parsing - handle common cases
-    match data {
-        b"\x1b[A" => Some(event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
-        b"\x1b[B" => Some(event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
-        b"\x1b[C" => Some(event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
-        b"\x1b[D" => Some(event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
-        b"\r" | b"\n" => Some(event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        b"\x7f" | b"\x08" => Some(event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
-        _ => {
-            // Try to parse as UTF-8 character
-            if let Ok(s) = std::str::from_utf8(data) {
-                if let Some(ch) = s.chars().next() {
-                    return Some(event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+    // Check for escape sequences first
+    if buffer[0] == 0x1b {
+        // Escape sequence
+        if buffer.len() < 2 {
+            return None; // Need more data
+        }
+        
+        match buffer[1] {
+            b'[' => {
+                // CSI sequence - need at least 3 bytes
+                if buffer.len() < 3 {
+                    return None;
+                }
+                
+                // Check for arrow keys and other common sequences
+                match buffer[2] {
+                    b'A' => {
+                        buffer.drain(0..3);
+                        return Some(event::KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+                    }
+                    b'B' => {
+                        buffer.drain(0..3);
+                        return Some(event::KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+                    }
+                    b'C' => {
+                        buffer.drain(0..3);
+                        return Some(event::KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+                    }
+                    b'D' => {
+                        buffer.drain(0..3);
+                        return Some(event::KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+                    }
+                    _ => {
+                        // Unknown CSI sequence - consume it up to the terminating character
+                        for i in 3..buffer.len() {
+                            if (buffer[i] >= b'@' && buffer[i] <= b'~') || buffer[i] == 0x1b {
+                                buffer.drain(0..=i);
+                                return None; // Unknown sequence, ignore it
+                            }
+                        }
+                        return None; // Need more data
+                    }
                 }
             }
-            None
+            b'O' => {
+                // SS3 sequence (function keys) - consume it
+                if buffer.len() >= 3 {
+                    buffer.drain(0..3);
+                }
+                return None;
+            }
+            _ => {
+                // Unknown escape sequence - consume the escape
+                buffer.pop_front();
+                return None;
+            }
+        }
+    }
+    
+    // Check for control characters
+    match buffer[0] {
+        b'\r' | b'\n' => {
+            buffer.pop_front();
+            return Some(event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        }
+        0x7f | 0x08 => {
+            buffer.pop_front();
+            return Some(event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        }
+        0x03 => {
+            // Ctrl+C
+            buffer.pop_front();
+            return Some(event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        }
+        0x04 => {
+            // Ctrl+D
+            buffer.pop_front();
+            return Some(event::KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        }
+        _ => {
+            // Try to parse as UTF-8 character
+            // We need to check if we have a complete UTF-8 sequence
+            let mut utf8_bytes = Vec::new();
+            let mut i = 0;
+            
+            while i < buffer.len() && i < 4 {
+                utf8_bytes.push(buffer[i]);
+                if let Ok(s) = std::str::from_utf8(&utf8_bytes) {
+                    if let Some(ch) = s.chars().next() {
+                        // Valid UTF-8 character
+                        buffer.drain(0..=i);
+                        // Skip control characters (except printable ones)
+                        if ch.is_control() && ch != '\n' && ch != '\r' && ch != '\t' {
+                            return None;
+                        }
+                        return Some(event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+                    }
+                }
+                i += 1;
+            }
+            
+            // If we can't parse it yet, we might need more data
+            // But if it's clearly not valid UTF-8, consume it
+            if buffer[0] < 0x80 {
+                // ASCII character
+                let ch = buffer.pop_front().unwrap() as char;
+                if ch.is_control() && ch != '\n' && ch != '\r' && ch != '\t' {
+                    return None;
+                }
+                return Some(event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+            }
+            
+            // Need more data for multi-byte UTF-8
+            return None;
         }
     }
 }
