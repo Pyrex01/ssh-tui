@@ -149,14 +149,14 @@ async fn run_ssh_tui(
                     should_quit = true;
                     break;
                 }
-                KeyCode::Up => {
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
                     if scroll_offset > 0 {
                         scroll_offset -= 1;
                         needs_redraw = true;
                     }
                 }
-                KeyCode::Down => {
-                    scroll_offset += 1;
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+                    scroll_offset = scroll_offset.saturating_add(1);
                     needs_redraw = true;
                 }
                 KeyCode::PageUp => {
@@ -164,15 +164,16 @@ async fn run_ssh_tui(
                     needs_redraw = true;
                 }
                 KeyCode::PageDown => {
-                    scroll_offset += 10;
+                    scroll_offset = scroll_offset.saturating_add(10);
                     needs_redraw = true;
                 }
-                KeyCode::Home => {
+                KeyCode::Home | KeyCode::Char('g') => {
                     scroll_offset = 0;
                     needs_redraw = true;
                 }
-                KeyCode::End => {
-                    scroll_offset = u16::MAX; // Will be clamped in render
+                KeyCode::End | KeyCode::Char('G') => {
+                    // Will be clamped in render based on total lines
+                    scroll_offset = u16::MAX;
                     needs_redraw = true;
                 }
                 _ => {
@@ -195,6 +196,13 @@ async fn run_ssh_tui(
             
             // Create a buffer to render to
             let area = Rect::new(0, 0, width, height);
+            
+            // Calculate total lines and clamp scroll_offset before rendering
+            let lines = build_resume_lines(area);
+            let total_lines = lines.len();
+            let max_scroll = total_lines.saturating_sub(height as usize).max(0);
+            scroll_offset = scroll_offset.min(max_scroll as u16);
+            
             let mut buffer = Buffer::empty(area);
             
             // Render the resume UI
@@ -343,9 +351,8 @@ fn modifier_to_ansi(modifier: ratatui::style::Modifier) -> String {
     }
 }
 
-// Render the resume UI with retro-futuristic styling
-fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) {
-    
+// Build all resume lines and return them (used for both counting and rendering)
+fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     // Retro-futuristic color scheme
     let accent_cyan = Color::Cyan;
     let accent_green = Color::Green;
@@ -401,253 +408,253 @@ fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) {
     ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Contact information
     let _s3389 = format!("{}  CONTACT INFORMATION", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3389.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3389, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s7089 = format!("{}  Email: riyankhanpyrex01@gmail.com", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7089.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7089, normal_style)]));
     let _s872 = format!("{}  Phone: +91-7304100368", border_side);
-    lines.push(Line::from(vec![Span::styled(_s872.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s872, normal_style)]));
     let _s3327 = format!("{}  LinkedIn: riyan--khan", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3327.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3327, normal_style)]));
     let _s1384 = format!("{}  Website: pyrex01.github.io/Pyrex01/", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1384.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1384, normal_style)]));
     let _s7200 = format!("{}  GitHub: Pyrex01", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7200.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7200, normal_style)]));
     let _s2380 = format!("{}  Location: Mumbai, India", border_side);
-    lines.push(Line::from(vec![Span::styled(_s2380.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2380, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Summary
     let _s9799 = format!("{}  SUMMARY", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9799.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9799, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s8815 = format!("{}  Java and Node.js Developer with 3+ years of experience", border_side);
-    lines.push(Line::from(vec![Span::styled(_s8815.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s8815, normal_style)]));
     let _s9348 = format!("{}  designing and deploying scalable microservices and", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9348.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9348, normal_style)]));
     let _s9509 = format!("{}  cloud-native applications. Proficient in Java, Spring Boot,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9509.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9509, normal_style)]));
     let _s9026 = format!("{}  RESTful APIs, and cloud platforms like AWS. Experienced", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9026.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9026, normal_style)]));
     let _s6881 = format!("{}  in CI/CD, containerization, and agile workflows. Strong", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6881.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6881, normal_style)]));
     let _s8766 = format!("{}  in data structures, algorithms, and system design.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s8766.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s8766, normal_style)]));
     let _s5206 = format!("{}  Passionate about building efficient and reliable backend", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5206.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5206, normal_style)]));
     let _s6957 = format!("{}  systems.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6957.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6957, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Skills
     let _s4406 = format!("{}  SKILLS", border_side);
-    lines.push(Line::from(vec![Span::styled(_s4406.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s4406, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050.as_str(), normal_style),
+        Span::styled(_s2050, normal_style),
         Span::styled("• Languages: ", highlight_style),
         Span::styled("Java, Node.js, Rust, SQL, Bash", normal_style),
     ]));
     let _s2050_2 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_2.as_str(), normal_style),
+        Span::styled(_s2050_2, normal_style),
         Span::styled("• Frameworks: ", highlight_style),
         Span::styled("Spring Boot, Spring WebFlux, NestJS", normal_style),
     ]));
     let _s2050_3 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_3.as_str(), normal_style),
+        Span::styled(_s2050_3, normal_style),
         Span::styled("• Databases: ", highlight_style),
         Span::styled("MySQL, PostgreSQL", normal_style),
     ]));
     let _s2050_7 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_7.as_str(), normal_style),
+        Span::styled(_s2050_7, normal_style),
         Span::styled("• Dev-Ops: ", highlight_style),
         Span::styled("Git, Docker, Kubernetes, CI/CD, AWS", normal_style),
     ]));
     let _s_devops = format!("{}              (S3, EC2, RDS, CloudWatch, Lambda)", border_side);
-    lines.push(Line::from(vec![Span::styled(_s_devops.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s_devops, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Projects
     let _s255 = format!("{}  PROJECTS", border_side);
-    lines.push(Line::from(vec![Span::styled(_s255.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s255, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_8 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_8.as_str(), normal_style),
+        Span::styled(_s2050_8, normal_style),
         Span::styled("▶ Kryptoria - Blockchain-based app", project_style),
     ]));
     let _s6702 = format!("{}    • Built and optimized backend infrastructure using", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6702.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6702, normal_style)]));
     let _s762 = format!("{}      Node.js, Express.js, and Spring Boot, supporting", border_side);
-    lines.push(Line::from(vec![Span::styled(_s762.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s762, normal_style)]));
     let _s4539 = format!("{}      dynamic in-game NFT asset transactions.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s4539.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s4539, normal_style)]));
     let _s2080 = format!("{}    • Designed and developed the wallet connection module,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s2080.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2080, normal_style)]));
     let _s6298 = format!("{}      integrating with major cryptocurrency wallets for", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6298.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6298, normal_style)]));
     let _s6153 = format!("{}      secure user login and asset management.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6153.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6153, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     
     let _s2050_9 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_9.as_str(), normal_style),
+        Span::styled(_s2050_9, normal_style),
         Span::styled("▶ Wrktalk - Real-time chat application", project_style),
     ]));
     let _s8189 = format!("{}    • Developed cross-platform frontend and backend features", border_side);
-    lines.push(Line::from(vec![Span::styled(_s8189.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s8189, normal_style)]));
     let _s5344 = format!("{}      enabling secure retrieval and synchronization of", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5344.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5344, normal_style)]));
     let _s1612 = format!("{}      historical messages after new installs.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1612.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1612, normal_style)]));
     let _s4278 = format!("{}    • Architected and implemented real-time messaging with", border_side);
-    lines.push(Line::from(vec![Span::styled(_s4278.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s4278, normal_style)]));
     let _s3876 = format!("{}      Socket.IO for reliable, low-latency communication.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3876.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3876, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     
     let _s2050_10 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_10.as_str(), normal_style),
+        Span::styled(_s2050_10, normal_style),
         Span::styled("▶ BBPS Integration - Payment gateway", project_style),
     ]));
     let _s5735 = format!("{}    • Implemented secure payment workflows with instant", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5735.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5735, normal_style)]));
     let _s3634 = format!("{}      digital receipt generation and real-time transaction", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3634.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3634, normal_style)]));
     let _s6958 = format!("{}      confirmations.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6958.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6958, normal_style)]));
     let _s1627 = format!("{}    • Designed backend modules for bill fetching, validation,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1627.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1627, normal_style)]));
     let _s202 = format!("{}      and payment processing.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s202.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s202, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     
     let _s2050_11 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_11.as_str(), normal_style),
+        Span::styled(_s2050_11, normal_style),
         Span::styled("▶ Abra DeFi - Bridge, Trading & Payments", project_style),
     ]));
     let _s4808 = format!("{}    • Engineered reliable USD to USDC on-ramping and", border_side);
-    lines.push(Line::from(vec![Span::styled(_s4808.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s4808, normal_style)]));
     let _s9780 = format!("{}      off-ramping functionality for seamless fiat-to-crypto", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9780.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9780, normal_style)]));
     let _s1211 = format!("{}      transactions.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1211.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1211, normal_style)]));
     let _s3530 = format!("{}    • Integrated Rails.io for high-throughput crypto payments.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3530.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3530, normal_style)]));
     let _s0 = format!("{}    • Contributed to Talos trading integration.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s0.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s0, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     
     let _s2050_4 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_4.as_str(), normal_style),
+        Span::styled(_s2050_4, normal_style),
         Span::styled("▶ Abra-Fi - Solana + Spring WebFlux", project_style),
     ]));
     let _s702 = format!("{}    • Spearheaded end-to-end backend development, integrating", border_side);
-    lines.push(Line::from(vec![Span::styled(_s702.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s702, normal_style)]));
     let _s9277 = format!("{}      Solana blockchain capabilities with reactive microservices.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9277.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s9277, normal_style)]));
     let _s787 = format!("{}    • Integrated Solana SDK/RPC with Spring WebFlux for", border_side);
-    lines.push(Line::from(vec![Span::styled(_s787.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s787, normal_style)]));
     let _s3806 = format!("{}      non-blocking smart contract interactions.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3806.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3806, normal_style)]));
     let _s7625 = format!("{}    • Built blockchain crawlers to continuously fetch and", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7625.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7625, normal_style)]));
     let _s1524 = format!("{}      process on-chain program data.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1524.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1524, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Personal Project
     let _s7097 = format!("{}  PERSONAL PROJECT", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7097.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7097, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_12 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_12.as_str(), normal_style),
+        Span::styled(_s2050_12, normal_style),
         Span::styled("▶ Walkie-Talkie App - Rust + Android", project_style),
     ]));
     let _s2057 = format!("{}    • Developed a custom Rust library for low-level,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s2057.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2057, normal_style)]));
     let _s7641 = format!("{}      CPU-efficient audio processing, integrated with", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7641.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7641, normal_style)]));
     let _s2680 = format!("{}      native Android.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s2680.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2680, normal_style)]));
     let _s4607 = format!("{}    • Designed and implemented a system to capture audio,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s4607.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s4607, normal_style)]));
     let _s646 = format!("{}      encode it, and transmit through UDP over Ethernet", border_side);
-    lines.push(Line::from(vec![Span::styled(_s646.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s646, normal_style)]));
     let _s726 = format!("{}      in real time.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s726.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s726, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Professional Experience
     let _s6459 = format!("{}  PROFESSIONAL EXPERIENCE", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6459.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6459, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_5 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_5.as_str(), normal_style),
+        Span::styled(_s2050_5, normal_style),
         Span::styled("Software Engineer", highlight_style),
         Span::styled("  ", normal_style),
         Span::styled("Rejolut Solutions Pvt Ltd", accent_cyan),
     ]));
     let _s2050_6 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_6.as_str(), normal_style),
+        Span::styled(_s2050_6, normal_style),
         Span::styled("May 2022 – Present | India", dim_style),
     ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s7345 = format!("{}  • Designed and developed RESTful APIs using Spring Boot", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7345.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7345, normal_style)]));
     let _s5052 = format!("{}    and Node.js for enterprise applications.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5052.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5052, normal_style)]));
     let _s5218 = format!("{}  • Integrated containerization workflows with Docker and", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5218.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5218, normal_style)]));
     let _s6084 = format!("{}    managed orchestration using Kubernetes.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6084.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s6084, normal_style)]));
     let _s8108 = format!("{}  • Automated deployment pipelines with GitHub Actions.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s8108.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s8108, normal_style)]));
     let _s3550 = format!("{}  • Regularly participated in code reviews and Agile", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3550.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s3550, normal_style)]));
     let _s1462 = format!("{}    sprint planning.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1462.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s1462, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Education
     let _s505 = format!("{}  EDUCATION", border_side);
-    lines.push(Line::from(vec![Span::styled(_s505.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s505, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_13 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_13.as_str(), normal_style),
+        Span::styled(_s2050_13, normal_style),
         Span::styled("Bachelor's of Science in Information and Technology", highlight_style),
     ]));
     let _s2050_14 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_14.as_str(), normal_style),
+        Span::styled(_s2050_14, normal_style),
         Span::styled("Kalsekar Degree College", accent_cyan),
         Span::styled("  ", normal_style),
         Span::styled("2019 – 2022", dim_style),
@@ -655,42 +662,53 @@ fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) {
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_15 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_15.as_str(), normal_style),
+        Span::styled(_s2050_15, normal_style),
         Span::styled("Masters in Computer Application", highlight_style),
     ]));
     let _s2050_16 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_16.as_str(), normal_style),
+        Span::styled(_s2050_16, normal_style),
         Span::styled("Lovely Professional University", accent_cyan),
         Span::styled("  ", normal_style),
         Span::styled("2022 – 2026", dim_style),
     ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Hobbies
     let _s5688 = format!("{}  HOBBIES", border_side);
-    lines.push(Line::from(vec![Span::styled(_s5688.as_str(), section_style)]));
+    lines.push(Line::from(vec![Span::styled(_s5688, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s169 = format!("{}  • Exploring ARM and IoT devices", border_side);
-    lines.push(Line::from(vec![Span::styled(_s169.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s169, normal_style)]));
     let _s_languages = format!("{}  • Interested in low-level languages (Rust, C, Go)", border_side);
-    lines.push(Line::from(vec![Span::styled(_s_languages.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s_languages, normal_style)]));
     let _s7209 = format!("{}  • Built custom network routing systems for Kubernetes", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7209.as_str(), normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s7209, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_17 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
-        Span::styled(_s2050_17.as_str(), normal_style),
-        Span::styled("Navigation: [↑/↓] Scroll  [Home/End] Jump  [Q] Quit", dim_style),
+        Span::styled(_s2050_17, normal_style),
+        Span::styled("Navigation: [↑/↓] or [j/k] Scroll  [Home/End] or [g/G] Jump  [Q] Quit", dim_style),
     ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_bottom_start, border_line, border_bottom_end);
-    lines.push(Line::from(vec![Span::styled(_s2708.as_str(), border_style)]));
+    lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
+    
+    lines
+}
+
+// Render the resume UI with retro-futuristic styling
+// Returns the total number of lines
+fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) -> usize {
+    
+    // Build all lines
+    let lines = build_resume_lines(area);
+    let total_lines = lines.len();
     
     // Render lines with scroll offset
     let start_y = scroll_offset as usize;
@@ -703,6 +721,8 @@ fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) {
             paragraph.render(Rect::new(0, y_pos as u16, area.width, 1), buffer);
         }
     }
+    
+    total_lines
 }
 
 // Parse SSH input from a buffer, extracting complete key events
