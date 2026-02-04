@@ -2,14 +2,30 @@ package org.example;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
 
 import jexer.TAction;
 import jexer.TApplication;
+import jexer.TLabel;
 import jexer.TWindow;
+import jexer.event.TKeypressEvent;
 import jexer.event.TMenuEvent;
+import jexer.event.TMouseEvent;
 import jexer.menu.TMenu;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class HelloJexer extends TApplication {
+
+    private static final Logger logger = LoggerFactory.getLogger(HelloJexer.class);
+    
+    private TWindow cvWindow;
+    private final List<TLabel> labelWidgets = new ArrayList<>();
+    private int scrollOffset = 0;
+    private String[] contentLines;
+    private int maxVisibleLines;
+    private final int textStartY = 1;
 
     public HelloJexer() throws Exception {
         super(BackendType.SWING); // Use Swing backend when launching locally.
@@ -21,8 +37,13 @@ public class HelloJexer extends TApplication {
      * used by the SSH server to draw directly in the SSH client's terminal.
      */
     public HelloJexer(InputStream in, OutputStream out) throws Exception {
+        logger.info("HelloJexer constructor called with InputStream: {}, OutputStream: {}", 
+            in != null ? in.getClass().getName() : "null",
+            out != null ? out.getClass().getName() : "null");
         super(in, out); // XTERM backend that speaks ANSI escape sequences.
+        logger.info("HelloJexer super() call completed, building UI...");
         buildUi();
+        logger.info("HelloJexer UI built successfully");
     }
     
     private String matrixText(String text) {
@@ -39,9 +60,13 @@ public class HelloJexer extends TApplication {
         int screenWidth = getScreen().getWidth();
         int screenHeight = getScreen().getHeight();
         
+        // Calculate available space (accounting for window borders and button)
+        int windowWidth = screenWidth;
+        int windowHeight = screenHeight;
+        maxVisibleLines = windowHeight - 4; // Account for borders and button space
 
         // Matrix-themed main CV window - make it scrollable, use full screen
-        TWindow cvWindow = addWindow("╔═══ THE MATRIX CV SYSTEM ═══╗", 0, 0, screenWidth, screenHeight);
+        cvWindow = addWindow("╔═══ THE MATRIX CV SYSTEM ═══╗", 0, 0, windowWidth, windowHeight);
         
         // Build complete CV content as a single scrollable text block
         StringBuilder cvContent = new StringBuilder();
@@ -202,20 +227,14 @@ public class HelloJexer extends TApplication {
         // Footer
         cvContent.append(matrixHeader("════════════════════════════════════════════════════════════════════════════════\n"));
         cvContent.append("\n");
-        cvContent.append(matrixText("  [Use ↑/↓ to scroll | Press 'Q' or 'Escape' to exit] | Welcome to the Matrix...\n"));
+        cvContent.append(matrixText("  [Use J/K or ↑/↓ to scroll | Mouse wheel to scroll | Press 'Q' or 'Escape' to exit] | Welcome to the Matrix...\n"));
         cvContent.append("\n");
         
-        // Create scrollable text widget - TWindow is scrollable by default
-        // Split content into lines and add as labels for better control
-        String[] lines = cvContent.toString().split("\n");
-        int yPos = 1;
-        for (String line : lines) {
-            // Add each line as a label - window will scroll automatically
-            cvWindow.addLabel(line, 2, yPos++);
-        }
+        // Store content lines for scrolling
+        contentLines = cvContent.toString().split("\n");
         
         // Exit button at bottom
-        cvWindow.addButton("&Exit Matrix", screenWidth - 22, screenHeight - 3,
+        cvWindow.addButton("&Exit Matrix", windowWidth - 22, windowHeight - 3,
             new TAction() {
                 @Override
                 public void DO() {
@@ -223,8 +242,147 @@ public class HelloJexer extends TApplication {
                 }
             }
         );
+        
+        // Initial render
+        updateScrollDisplay();
+    }
+    
+    private void updateScrollDisplay() {
+        if (contentLines == null || cvWindow == null) {
+            return;
+        }
+        
+        // Ensure scroll offset is within bounds
+        int totalLines = contentLines.length;
+        int maxScroll = Math.max(0, totalLines - maxVisibleLines);
+        scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+        
+        // Update or create labels for visible lines
+        int endLine = Math.min(scrollOffset + maxVisibleLines, totalLines);
+        int visibleCount = endLine - scrollOffset;
+        int maxWidth = cvWindow.getWidth() - 4;
+        
+        // Ensure we have enough labels
+        while (labelWidgets.size() < visibleCount) {
+            int yPos = textStartY + labelWidgets.size();
+            TLabel label = cvWindow.addLabel("", 2, yPos);
+            labelWidgets.add(label);
+        }
+        
+        // Update label text for visible content
+        for (int i = 0; i < visibleCount && i < labelWidgets.size(); i++) {
+            int lineIndex = scrollOffset + i;
+            if (lineIndex < contentLines.length) {
+                String line = contentLines[lineIndex];
+                // Truncate line if too long for window
+                if (line.length() > maxWidth) {
+                    line = line.substring(0, maxWidth);
+                }
+                labelWidgets.get(i).setLabel(line);
+            }
+        }
+        
+        // Hide extra labels by setting them to empty
+        for (int i = visibleCount; i < labelWidgets.size(); i++) {
+            labelWidgets.get(i).setLabel("");
+        }
+    }
+    
+    private void scrollDown(int lines) {
+        scrollOffset += lines;
+        updateScrollDisplay();
+    }
+    
+    private void scrollUp(int lines) {
+        scrollOffset = Math.max(0, scrollOffset - lines);
+        updateScrollDisplay();
     }
 
+    // Handle keyboard events for J/K scrolling
+    @Override
+    public boolean onKeypress(TKeypressEvent keypress) {
+        logger.debug("onKeypress() called - keypress event received!");
+        try {
+            int keyCode = keypress.getKey().getKeyCode();
+            logger.debug("Key code: 0x{} (decimal: {})", Integer.toHexString(keyCode), keyCode);
+            
+            // Check if it's a printable character (ASCII range)
+            if (keyCode >= 32 && keyCode <= 126) {
+                char ch = (char) keyCode;
+                logger.info("Keypress detected: '{}' (0x{})", ch, Integer.toHexString(keyCode));
+                
+                // Handle J/K keys for nvim-style scrolling
+                switch (ch) {
+                    case 'j':
+                    case 'J':
+                        logger.info("Scrolling DOWN (J key pressed)");
+                        scrollDown(1);
+                        return true;
+                    case 'k':
+                    case 'K':
+                        logger.info("Scrolling UP (K key pressed)");
+                        scrollUp(1);
+                        return true;
+                    case 'q':
+                    case 'Q':
+                        logger.info("Exit requested (Q key pressed)");
+                        exit();
+                        return true;
+                    default:
+                        break;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error processing keypress", e);
+        }
+        
+        // Try to handle special keys by key code
+        int keyCode = keypress.getKey().getKeyCode();
+        logger.debug("Checking special key codes: 0x{}", Integer.toHexString(keyCode));
+        switch (keyCode) {
+            case 0x102:
+            case 0x148: // Down arrow
+                logger.info("Scrolling DOWN (arrow key)");
+                scrollDown(1);
+                return true;
+            case 0x103:
+            case 0x151: // Up arrow
+                logger.info("Scrolling UP (arrow key)");
+                scrollUp(1);
+                return true;
+            case 0x149: // Page Up
+                logger.info("Scrolling UP (Page Up)");
+                scrollUp(maxVisibleLines / 2);
+                return true;
+            case 0x153: // Page Down
+                logger.info("Scrolling DOWN (Page Down)");
+                scrollDown(maxVisibleLines / 2);
+                return true;
+            default:
+                logger.debug("Unhandled key code: 0x{}", Integer.toHexString(keyCode));
+                break;
+        }
+        
+        logger.debug("Calling super.onKeypress()");
+        return super.onKeypress(keypress);
+    }
+    
+    // Handle mouse events for scroll wheel - check if method exists
+    public boolean onMouseEvent(TMouseEvent mouse) {
+        // Handle mouse wheel scrolling - check event type
+        TMouseEvent.Type type = mouse.getType();
+        String typeStr = type.toString();
+        if (typeStr.contains("WHEEL") || typeStr.contains("SCROLL")) {
+            if (typeStr.contains("UP")) {
+                scrollUp(3);
+                return true;
+            } else if (typeStr.contains("DOWN")) {
+                scrollDown(3);
+                return true;
+            }
+        }
+        return false;
+    }
     // Optional: Override the menu setup if you want a menu bar
     @Override
     protected boolean onMenu(TMenuEvent menu) {
