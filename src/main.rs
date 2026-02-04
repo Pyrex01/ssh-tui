@@ -144,6 +144,18 @@ impl server::Handler for ServerHandler {
         }
         Ok(())
     }
+
+    async fn channel_close(
+        &mut self,
+        channel: ChannelId,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        // Clean up client when channel closes
+        let mut clients = self.clients.lock().await;
+        clients.retain(|_, (id, _, _, _)| *id != channel);
+        self.connection_count.fetch_sub(1, Ordering::Relaxed);
+        Ok(())
+    }
 }
 
 // Run TUI for an SSH client
@@ -218,6 +230,11 @@ async fn run_ssh_tui(
             // Send goodbye message before quitting
             let goodbye = "\x1b[2J\x1b[H\x1b[36m[SYSTEM] Connection terminated. Goodbye!\x1b[0m\r\n";
             let _ = handle.data(channel_id, CryptoVec::from(goodbye.as_bytes())).await;
+            // Give a small delay to ensure the message is sent
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Close the channel properly
+            let _ = handle.eof(channel_id).await;
+            let _ = handle.close(channel_id).await;
             break;
         }
         
