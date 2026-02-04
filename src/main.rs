@@ -3,7 +3,7 @@ use crossterm::event::{self, KeyCode, KeyModifiers};
 use ratatui::{
     prelude::*,
     widgets::Paragraph,
-    text::Line,
+    text::{Line, Span},
 };
 use russh::*;
 use russh::keys::ssh_key::rand_core::OsRng;
@@ -405,23 +405,49 @@ fn modifier_to_ansi(modifier: ratatui::style::Modifier) -> String {
     }
 }
 
+// Helper function to create progress bar visual
+fn create_progress_bar(filled: u8, total: u8, width: usize) -> String {
+    let filled_chars = ((filled as f32 / total as f32) * width as f32) as usize;
+    let empty_chars = width.saturating_sub(filled_chars);
+    format!(
+        "{}{}",
+        "█".repeat(filled_chars.min(width)),
+        "░".repeat(empty_chars)
+    )
+}
+
 // Build all resume lines and return them (used for both counting and rendering)
 fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
-    // Retro-futuristic color scheme
-    let accent_cyan = Color::Cyan;
-    let accent_green = Color::Green;
-    let accent_yellow = Color::Yellow;
-    let accent_magenta = Color::Magenta;
+    // Enhanced btop-inspired color scheme with vibrant accents
+    let accent_cyan = Color::LightCyan;
+    let accent_green = Color::LightGreen;
+    let accent_yellow = Color::LightYellow;
+    let accent_magenta = Color::LightMagenta;
+    let accent_blue = Color::LightBlue;
     let text_color = Color::White;
     let dim_color = Color::Gray;
     
-    let border_style = Style::default().fg(accent_cyan);
-    let title_style = Style::default().fg(accent_cyan).add_modifier(ratatui::style::Modifier::BOLD);
-    let section_style = Style::default().fg(accent_green).add_modifier(ratatui::style::Modifier::BOLD);
-    let highlight_style = Style::default().fg(accent_yellow);
+    // Enhanced styles with better visual hierarchy
+    let border_style = Style::default()
+        .fg(accent_cyan)
+        .add_modifier(ratatui::style::Modifier::BOLD);
+    let title_style = Style::default()
+        .fg(accent_cyan)
+        .add_modifier(ratatui::style::Modifier::BOLD | ratatui::style::Modifier::UNDERLINED);
+    let section_style = Style::default()
+        .fg(accent_green)
+        .add_modifier(ratatui::style::Modifier::BOLD);
+    let highlight_style = Style::default()
+        .fg(accent_yellow)
+        .add_modifier(ratatui::style::Modifier::BOLD);
     let normal_style = Style::default().fg(text_color);
     let dim_style = Style::default().fg(dim_color);
-    let project_style = Style::default().fg(accent_magenta);
+    let project_style = Style::default()
+        .fg(accent_magenta)
+        .add_modifier(ratatui::style::Modifier::BOLD);
+    let link_style = Style::default()
+        .fg(accent_blue)
+        .add_modifier(ratatui::style::Modifier::UNDERLINED);
     
     // Build all lines with proper styling
     let mut lines = Vec::new();
@@ -449,14 +475,20 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
         };
     }
     
-    // Header with name
+    // Enhanced header with visual effects
     let top_border = format!("{}{}{}", border_start, border_line, border_end);
     add_line!(Span::styled("", normal_style));
     add_line!(styled_str!(top_border, border_style));
+    
+    // Header with gradient-like effect
+    let name_padding = (border_width as usize).saturating_sub(30) / 2;
     lines.push(Line::from(vec![
         Span::styled(border_side, border_style),
         Span::styled("  ", normal_style),
+        Span::styled(" ".repeat(name_padding), normal_style),
         Span::styled("RIYAN KHAN", title_style),
+        Span::styled("  ", normal_style),
+        Span::styled("◆", accent_cyan),
         Span::styled("  ", normal_style),
         Span::styled("Software Engineer", highlight_style),
     ]));
@@ -464,92 +496,181 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
-    // Contact information
-    let _s3389 = format!("{}  CONTACT INFORMATION", border_side);
+    // Contact information with icons
+    let _s3389 = format!("{}  📧 CONTACT INFORMATION", border_side);
     lines.push(Line::from(vec![Span::styled(_s3389, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
-    let _s7089 = format!("{}  Email: riyankhanpyrex01@gmail.com", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7089, normal_style)]));
-    let _s872 = format!("{}  Phone: +91-7304100368", border_side);
-    lines.push(Line::from(vec![Span::styled(_s872, normal_style)]));
-    let _s3327 = format!("{}  LinkedIn: riyan--khan", border_side);
-    lines.push(Line::from(vec![Span::styled(_s3327, normal_style)]));
-    let _s1384 = format!("{}  Website: pyrex01.github.io/Pyrex01/", border_side);
-    lines.push(Line::from(vec![Span::styled(_s1384, normal_style)]));
-    let _s7200 = format!("{}  GitHub: Pyrex01", border_side);
-    lines.push(Line::from(vec![Span::styled(_s7200, normal_style)]));
-    let _s2380 = format!("{}  Location: Mumbai, India", border_side);
-    lines.push(Line::from(vec![Span::styled(_s2380, normal_style)]));
+    
+    let _s7089 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s7089, normal_style),
+        Span::styled("✉ ", accent_blue),
+        Span::styled("Email: ", highlight_style),
+        Span::styled("riyankhanpyrex01@gmail.com", link_style),
+    ]));
+    
+    let _s872 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s872, normal_style),
+        Span::styled("📱 ", accent_blue),
+        Span::styled("Phone: ", highlight_style),
+        Span::styled("+91-7304100368", normal_style),
+    ]));
+    
+    let _s3327 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s3327, normal_style),
+        Span::styled("💼 ", accent_blue),
+        Span::styled("LinkedIn: ", highlight_style),
+        Span::styled("riyan--khan", link_style),
+    ]));
+    
+    let _s1384 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s1384, normal_style),
+        Span::styled("🌐 ", accent_blue),
+        Span::styled("Website: ", highlight_style),
+        Span::styled("pyrex01.github.io/Pyrex01/", link_style),
+    ]));
+    
+    let _s7200 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s7200, normal_style),
+        Span::styled("🐙 ", accent_blue),
+        Span::styled("GitHub: ", highlight_style),
+        Span::styled("Pyrex01", link_style),
+    ]));
+    
+    let _s2380 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s2380, normal_style),
+        Span::styled("📍 ", accent_blue),
+        Span::styled("Location: ", highlight_style),
+        Span::styled("Mumbai, India", normal_style),
+    ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
-    // Summary
-    let _s9799 = format!("{}  SUMMARY", border_side);
+    // Summary with icon
+    let _s9799 = format!("{}  📋 SUMMARY", border_side);
     lines.push(Line::from(vec![Span::styled(_s9799, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
-    let _s8815 = format!("{}  Java and Node.js Developer with 3+ years of experience", border_side);
-    lines.push(Line::from(vec![Span::styled(_s8815, normal_style)]));
+    let _s8815 = format!("{}  ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s8815, normal_style),
+        Span::styled("Java and Node.js Developer with ", normal_style),
+        Span::styled("3+ years", highlight_style),
+        Span::styled(" of experience", normal_style),
+    ]));
     let _s9348 = format!("{}  designing and deploying scalable microservices and", border_side);
     lines.push(Line::from(vec![Span::styled(_s9348, normal_style)]));
-    let _s9509 = format!("{}  cloud-native applications. Proficient in Java, Spring Boot,", border_side);
-    lines.push(Line::from(vec![Span::styled(_s9509, normal_style)]));
-    let _s9026 = format!("{}  RESTful APIs, and cloud platforms like AWS. Experienced", border_side);
+    let _s9509 = format!("{}  cloud-native applications. Proficient in ", border_side);
+    lines.push(Line::from(vec![
+        Span::styled(_s9509, normal_style),
+        Span::styled("Java, Spring Boot, RESTful APIs", highlight_style),
+        Span::styled(", and cloud platforms like AWS.", normal_style),
+    ]));
+    let _s9026 = format!("{}  Experienced in CI/CD, containerization, and agile", border_side);
     lines.push(Line::from(vec![Span::styled(_s9026, normal_style)]));
-    let _s6881 = format!("{}  in CI/CD, containerization, and agile workflows. Strong", border_side);
+    let _s6881 = format!("{}  workflows. Strong in data structures, algorithms, and", border_side);
     lines.push(Line::from(vec![Span::styled(_s6881, normal_style)]));
-    let _s8766 = format!("{}  in data structures, algorithms, and system design.", border_side);
+    let _s8766 = format!("{}  system design. Passionate about building efficient and", border_side);
     lines.push(Line::from(vec![Span::styled(_s8766, normal_style)]));
-    let _s5206 = format!("{}  Passionate about building efficient and reliable backend", border_side);
+    let _s5206 = format!("{}  reliable backend systems.", border_side);
     lines.push(Line::from(vec![Span::styled(_s5206, normal_style)]));
-    let _s6957 = format!("{}  systems.", border_side);
-    lines.push(Line::from(vec![Span::styled(_s6957, normal_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
-    // Skills
-    let _s4406 = format!("{}  SKILLS", border_side);
+    // Skills with progress bars (btop-style)
+    let _s4406 = format!("{}  ⚡ SKILLS", border_side);
     lines.push(Line::from(vec![Span::styled(_s4406, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
+    
+    // Languages with progress bars
     let _s2050 = format!("{}  ", border_side);
+    let lang_bar_width = (border_width as usize).saturating_sub(25).min(30);
     lines.push(Line::from(vec![
         Span::styled(_s2050, normal_style),
-        Span::styled("• Languages: ", highlight_style),
+        Span::styled("🔷 Languages: ", highlight_style),
         Span::styled("Java, Node.js, Rust, SQL, Bash", normal_style),
     ]));
+    let _s_lang_bar = format!("{}  ", border_side);
+    let lang_progress = create_progress_bar(9, 10, lang_bar_width);
+    lines.push(Line::from(vec![
+        Span::styled(_s_lang_bar, normal_style),
+        Span::styled("    ", normal_style),
+        Span::styled(lang_progress, Style::default().fg(accent_green)),
+        Span::styled(" 95%", Style::default().fg(accent_green).add_modifier(ratatui::style::Modifier::BOLD)),
+    ]));
+    
+    // Frameworks
     let _s2050_2 = format!("{}  ", border_side);
+    let framework_bar_width = (border_width as usize).saturating_sub(25).min(30);
     lines.push(Line::from(vec![
         Span::styled(_s2050_2, normal_style),
-        Span::styled("• Frameworks: ", highlight_style),
+        Span::styled("🔷 Frameworks: ", highlight_style),
         Span::styled("Spring Boot, Spring WebFlux, NestJS", normal_style),
     ]));
+    let _s_framework_bar = format!("{}  ", border_side);
+    let framework_progress = create_progress_bar(9, 10, framework_bar_width);
+    lines.push(Line::from(vec![
+        Span::styled(_s_framework_bar, normal_style),
+        Span::styled("    ", normal_style),
+        Span::styled(framework_progress, Style::default().fg(accent_cyan)),
+        Span::styled(" 92%", Style::default().fg(accent_cyan).add_modifier(ratatui::style::Modifier::BOLD)),
+    ]));
+    
+    // Databases
     let _s2050_3 = format!("{}  ", border_side);
+    let db_bar_width = (border_width as usize).saturating_sub(25).min(30);
     lines.push(Line::from(vec![
         Span::styled(_s2050_3, normal_style),
-        Span::styled("• Databases: ", highlight_style),
+        Span::styled("🔷 Databases: ", highlight_style),
         Span::styled("MySQL, PostgreSQL", normal_style),
     ]));
+    let _s_db_bar = format!("{}  ", border_side);
+    let db_progress = create_progress_bar(8, 10, db_bar_width);
+    lines.push(Line::from(vec![
+        Span::styled(_s_db_bar, normal_style),
+        Span::styled("    ", normal_style),
+        Span::styled(db_progress, Style::default().fg(accent_yellow)),
+        Span::styled(" 88%", Style::default().fg(accent_yellow).add_modifier(ratatui::style::Modifier::BOLD)),
+    ]));
+    
+    // DevOps
     let _s2050_7 = format!("{}  ", border_side);
+    let devops_bar_width = (border_width as usize).saturating_sub(25).min(30);
     lines.push(Line::from(vec![
         Span::styled(_s2050_7, normal_style),
-        Span::styled("• Dev-Ops: ", highlight_style),
+        Span::styled("🔷 Dev-Ops: ", highlight_style),
         Span::styled("Git, Docker, Kubernetes, CI/CD, AWS", normal_style),
     ]));
+    let _s_devops_bar = format!("{}  ", border_side);
+    let devops_progress = create_progress_bar(9, 10, devops_bar_width);
+    lines.push(Line::from(vec![
+        Span::styled(_s_devops_bar, normal_style),
+        Span::styled("    ", normal_style),
+        Span::styled(devops_progress, Style::default().fg(accent_magenta)),
+        Span::styled(" 94%", Style::default().fg(accent_magenta).add_modifier(ratatui::style::Modifier::BOLD)),
+    ]));
     let _s_devops = format!("{}              (S3, EC2, RDS, CloudWatch, Lambda)", border_side);
-    lines.push(Line::from(vec![Span::styled(_s_devops, normal_style)]));
+    lines.push(Line::from(vec![Span::styled(_s_devops, dim_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_mid, border_line, border_end);
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
-    // Projects
-    let _s255 = format!("{}  PROJECTS", border_side);
+    // Projects with enhanced visuals
+    let _s255 = format!("{}  🚀 PROJECTS", border_side);
     lines.push(Line::from(vec![Span::styled(_s255, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_8 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_8, normal_style),
-        Span::styled("▶ Kryptoria - Blockchain-based app", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("Kryptoria", project_style),
+        Span::styled(" - Blockchain-based app", normal_style),
     ]));
     let _s6702 = format!("{}    • Built and optimized backend infrastructure using", border_side);
     lines.push(Line::from(vec![Span::styled(_s6702, normal_style)]));
@@ -568,7 +689,9 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2050_9 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_9, normal_style),
-        Span::styled("▶ Wrktalk - Real-time chat application", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("Wrktalk", project_style),
+        Span::styled(" - Real-time chat application", normal_style),
     ]));
     let _s8189 = format!("{}    • Developed cross-platform frontend and backend features", border_side);
     lines.push(Line::from(vec![Span::styled(_s8189, normal_style)]));
@@ -585,7 +708,9 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2050_10 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_10, normal_style),
-        Span::styled("▶ BBPS Integration - Payment gateway", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("BBPS Integration", project_style),
+        Span::styled(" - Payment gateway", normal_style),
     ]));
     let _s5735 = format!("{}    • Implemented secure payment workflows with instant", border_side);
     lines.push(Line::from(vec![Span::styled(_s5735, normal_style)]));
@@ -602,7 +727,9 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2050_11 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_11, normal_style),
-        Span::styled("▶ Abra DeFi - Bridge, Trading & Payments", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("Abra DeFi", project_style),
+        Span::styled(" - Bridge, Trading & Payments", normal_style),
     ]));
     let _s4808 = format!("{}    • Engineered reliable USD to USDC on-ramping and", border_side);
     lines.push(Line::from(vec![Span::styled(_s4808, normal_style)]));
@@ -619,7 +746,9 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2050_4 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_4, normal_style),
-        Span::styled("▶ Abra-Fi - Solana + Spring WebFlux", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("Abra-Fi", project_style),
+        Span::styled(" - Solana + Spring WebFlux", normal_style),
     ]));
     let _s702 = format!("{}    • Spearheaded end-to-end backend development, integrating", border_side);
     lines.push(Line::from(vec![Span::styled(_s702, normal_style)]));
@@ -638,13 +767,15 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Personal Project
-    let _s7097 = format!("{}  PERSONAL PROJECT", border_side);
+    let _s7097 = format!("{}  💻 PERSONAL PROJECT", border_side);
     lines.push(Line::from(vec![Span::styled(_s7097, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_12 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_12, normal_style),
-        Span::styled("▶ Walkie-Talkie App - Rust + Android", project_style),
+        Span::styled("▶ ", accent_cyan),
+        Span::styled("Walkie-Talkie App", project_style),
+        Span::styled(" - Rust + Android", normal_style),
     ]));
     let _s2057 = format!("{}    • Developed a custom Rust library for low-level,", border_side);
     lines.push(Line::from(vec![Span::styled(_s2057, normal_style)]));
@@ -663,7 +794,7 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Professional Experience
-    let _s6459 = format!("{}  PROFESSIONAL EXPERIENCE", border_side);
+    let _s6459 = format!("{}  💼 PROFESSIONAL EXPERIENCE", border_side);
     lines.push(Line::from(vec![Span::styled(_s6459, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_5 = format!("{}  ", border_side);
@@ -671,6 +802,7 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
         Span::styled(_s2050_5, normal_style),
         Span::styled("Software Engineer", highlight_style),
         Span::styled("  ", normal_style),
+        Span::styled("◆ ", accent_cyan),
         Span::styled("Rejolut Solutions Pvt Ltd", accent_cyan),
     ]));
     let _s2050_6 = format!("{}  ", border_side);
@@ -698,7 +830,7 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Education
-    let _s505 = format!("{}  EDUCATION", border_side);
+    let _s505 = format!("{}  🎓 EDUCATION", border_side);
     lines.push(Line::from(vec![Span::styled(_s505, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2050_13 = format!("{}  ", border_side);
@@ -731,7 +863,7 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     lines.push(Line::from(vec![Span::styled(_s2708, border_style)]));
     
     // Hobbies
-    let _s5688 = format!("{}  HOBBIES", border_side);
+    let _s5688 = format!("{}  🎯 HOBBIES", border_side);
     lines.push(Line::from(vec![Span::styled(_s5688, section_style)]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s169 = format!("{}  • Exploring ARM and IoT devices", border_side);
@@ -747,7 +879,17 @@ fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
     let _s2050_17 = format!("{}  ", border_side);
     lines.push(Line::from(vec![
         Span::styled(_s2050_17, normal_style),
-        Span::styled("Navigation: [↑/↓] or [j/k] Scroll  [Home/End] or [g/G] Jump  [Q] Quit", dim_style),
+        Span::styled("⌨  Navigation: ", dim_style),
+        Span::styled("[↑/↓]", accent_cyan),
+        Span::styled(" or ", dim_style),
+        Span::styled("[j/k]", accent_cyan),
+        Span::styled(" Scroll  ", dim_style),
+        Span::styled("[Home/End]", accent_cyan),
+        Span::styled(" or ", dim_style),
+        Span::styled("[g/G]", accent_cyan),
+        Span::styled(" Jump  ", dim_style),
+        Span::styled("[Q]", accent_yellow),
+        Span::styled(" Quit", dim_style),
     ]));
     lines.push(Line::from(vec![Span::styled(border_side, border_style)]));
     let _s2708 = format!("{}{}{}", border_bottom_start, border_line, border_bottom_end);
