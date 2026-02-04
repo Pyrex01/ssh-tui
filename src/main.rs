@@ -74,12 +74,27 @@ impl server::Handler for ServerHandler {
         // Create a channel for sending input to the TUI task
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         
-        // Shared terminal size (default to 80x24)
-        let terminal_size = Arc::new(Mutex::new((80u16, 24u16)));
+        // Shared terminal size (default to reasonable size, will be updated dynamically)
+        // Use larger defaults to encourage full-screen usage
+        let terminal_size = Arc::new(Mutex::new((120u16, 40u16)));
         
         {
             let mut clients = self.clients.lock().await;
             clients.insert(self.id, (channel_id, handle.clone(), input_tx, terminal_size.clone()));
+        }
+        
+        // Request terminal size from client using ANSI escape sequence
+        // This will cause the client to respond with terminal dimensions
+        let size_request = "\x1b[18t"; // Request terminal size (DSR - Device Status Report)
+        let _ = handle.data(channel_id, CryptoVec::from(size_request.as_bytes())).await;
+        
+        // Also try to get terminal size via environment variables if available
+        // Some SSH clients send this information
+        if let (Ok(cols_str), Ok(rows_str)) = (std::env::var("COLUMNS"), std::env::var("LINES")) {
+            if let (Ok(cols), Ok(rows)) = (cols_str.parse::<u16>(), rows_str.parse::<u16>()) {
+                let mut size = terminal_size.lock().await;
+                *size = (cols, rows);
+            }
         }
         
         // Spawn TUI task for this client
@@ -113,10 +128,19 @@ impl server::Handler for ServerHandler {
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        // Forward input to the TUI task
+        // Check if this is a terminal size response
         let clients = self.clients.lock().await;
-        if let Some((_, _, input_tx, _)) = clients.values().find(|(id, _, _, _)| *id == channel) {
-            let _ = input_tx.send(data.to_vec());
+        if let Some((_, _, input_tx, terminal_size)) = clients.values().find(|(id, _, _, _)| *id == channel) {
+            // Try to parse terminal size from ANSI escape sequence response
+            if let Some((width, height)) = parse_terminal_size_response(data) {
+                let mut size = terminal_size.lock().await;
+                *size = (width, height);
+                // Trigger a redraw by sending a resize signal
+                let _ = input_tx.send(vec![0xFF]); // Special marker for resize
+            } else {
+                // Forward input to the TUI task
+                let _ = input_tx.send(data.to_vec());
+            }
         }
         Ok(())
     }
@@ -134,10 +158,18 @@ async fn run_ssh_tui(
     let mut input_buffer = VecDeque::<u8>::new();
     let mut needs_redraw = true;
     let mut scroll_offset = 0u16;
+    let mut last_terminal_size = (0u16, 0u16);
+    let mut size_request_interval = tokio::time::interval(Duration::from_secs(2));
+    size_request_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     
     loop {
         // Check for input first (non-blocking)
         while let Ok(data) = input_rx.try_recv() {
+            // Check for resize signal (0xFF marker)
+            if data.len() == 1 && data[0] == 0xFF {
+                needs_redraw = true;
+                continue;
+            }
             input_buffer.extend(data);
             needs_redraw = true;
         }
@@ -194,7 +226,11 @@ async fn run_ssh_tui(
             // Get current terminal size
             let (width, height) = *terminal_size.lock().await;
             
-            // Create a buffer to render to
+            // Ensure minimum size
+            let width = width.max(40);
+            let height = height.max(10);
+            
+            // Create a buffer to render to - use full terminal size
             let area = Rect::new(0, 0, width, height);
             
             // Calculate total lines and clamp scroll_offset before rendering
@@ -205,7 +241,7 @@ async fn run_ssh_tui(
             
             let mut buffer = Buffer::empty(area);
             
-            // Render the resume UI
+            // Render the resume UI to full terminal area
             render_resume_ui(&mut buffer, area, scroll_offset);
             
             // Convert buffer to ANSI escape sequences and send to SSH channel
@@ -218,16 +254,34 @@ async fn run_ssh_tui(
             needs_redraw = false;
         }
         
-        // Wait for input or timeout
+        // Check if terminal size changed
+        let current_size = *terminal_size.lock().await;
+        if current_size != last_terminal_size {
+            last_terminal_size = current_size;
+            needs_redraw = true;
+        }
+        
+        // Wait for input, timeout, or periodic size check
         let input_received = tokio::select! {
             input = input_rx.recv() => {
                 if let Some(data) = input {
-                    input_buffer.extend(data);
-                    true // Need redraw after input
+                    // Check for resize signal
+                    if data.len() == 1 && data[0] == 0xFF {
+                        needs_redraw = true;
+                        false
+                    } else {
+                        input_buffer.extend(data);
+                        true // Need redraw after input
+                    }
                 } else {
                     // Channel closed
                     break;
                 }
+            }
+            _ = size_request_interval.tick() => {
+                // Periodically request terminal size to detect resizes
+                let _ = handle.data(channel_id, CryptoVec::from("\x1b[18t".as_bytes())).await;
+                false // No input, but might need periodic update
             }
             _ = tokio::time::sleep(Duration::from_millis(50)) => {
                 false // No input, but might need periodic update
@@ -723,6 +777,47 @@ fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) -> usiz
     }
     
     total_lines
+}
+
+// Parse terminal size response from ANSI escape sequence
+// Format: \x1b[8;{height};{width}t or \x1b[18t response
+fn parse_terminal_size_response(data: &[u8]) -> Option<(u16, u16)> {
+    // Look for ANSI escape sequence: \x1b[8;{rows};{cols}t
+    if data.len() < 8 {
+        return None;
+    }
+    
+    // Check for \x1b[8; pattern
+    if data[0] == 0x1b && data[1] == b'[' && data[2] == b'8' && data[3] == b';' {
+        let mut i = 4;
+        let mut rows = 0u32;
+        let mut cols = 0u32;
+        
+        // Parse rows
+        while i < data.len() && data[i] >= b'0' && data[i] <= b'9' {
+            rows = rows * 10 + (data[i] - b'0') as u32;
+            i += 1;
+        }
+        
+        // Check for semicolon
+        if i >= data.len() || data[i] != b';' {
+            return None;
+        }
+        i += 1;
+        
+        // Parse cols
+        while i < data.len() && data[i] >= b'0' && data[i] <= b'9' {
+            cols = cols * 10 + (data[i] - b'0') as u32;
+            i += 1;
+        }
+        
+        // Check for 't' terminator
+        if i < data.len() && data[i] == b't' {
+            return Some((cols as u16, rows as u16));
+        }
+    }
+    
+    None
 }
 
 // Parse SSH input from a buffer, extracting complete key events
