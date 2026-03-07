@@ -20,9 +20,12 @@ pub async fn run_ssh_tui(
     terminal_size: Arc<Mutex<(u16, u16)>>,
 ) -> Result<()> {
     let mut app = AppState::default();
+    let mut animation_frame: u64 = 0;
     let mut input_buffer = VecDeque::<u8>::new();
     let mut size_request_interval = tokio::time::interval(Duration::from_secs(2));
+    let mut animation_interval = tokio::time::interval(Duration::from_millis(160));
     size_request_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    animation_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         while let Ok(data) = input_rx.try_recv() {
@@ -56,11 +59,11 @@ pub async fn run_ssh_tui(
             let height = height.max(10);
             let area = Rect::new(0, 0, width, height);
 
-            let lines = build_resume_lines(area);
+            let lines = build_resume_lines(area, animation_frame);
             app.clamp_scroll(lines.len(), height);
 
             let mut buffer = Buffer::empty(area);
-            render_resume_ui(&mut buffer, area, app.scroll_offset);
+            render_resume_ui(&mut buffer, area, app.scroll_offset, animation_frame);
 
             let output = render_buffer_to_ansi(&buffer, width, height);
             if let Err(e) = handle.data(channel_id, CryptoVec::from(output.as_bytes())).await {
@@ -90,6 +93,11 @@ pub async fn run_ssh_tui(
             }
             _ = size_request_interval.tick() => {
                 let _ = handle.data(channel_id, CryptoVec::from("\x1b[18t".as_bytes())).await;
+                false
+            }
+            _ = animation_interval.tick() => {
+                animation_frame = animation_frame.wrapping_add(1);
+                app.needs_redraw = true;
                 false
             }
             _ = tokio::time::sleep(Duration::from_millis(50)) => {

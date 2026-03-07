@@ -4,59 +4,42 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-fn repeat_pattern(pattern: &str, width: usize) -> String {
-    if pattern.is_empty() || width == 0 {
-        return String::new();
-    }
-    let mut out = String::with_capacity(width);
-    while out.chars().count() < width {
-        out.push_str(pattern);
-    }
-    out.chars().take(width).collect()
-}
-
-fn progress_bar(score: u8, width: usize) -> String {
-    let filled = ((score as f32 / 10.0) * width as f32).round() as usize;
-    format!(
-        "{}{}",
-        "█".repeat(filled.min(width)),
-        "░".repeat(width.saturating_sub(filled))
-    )
-}
-
 fn wrap_text(input: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
     }
+
     let mut out = Vec::new();
-    let mut current = String::new();
+    let mut line = String::new();
     for word in input.split_whitespace() {
-        if current.is_empty() {
-            current.push_str(word);
+        if line.is_empty() {
+            line.push_str(word);
             continue;
         }
-        if current.len() + 1 + word.len() > width {
-            out.push(current);
-            current = word.to_string();
+
+        if line.len() + 1 + word.len() > width {
+            out.push(line);
+            line = word.to_string();
         } else {
-            current.push(' ');
-            current.push_str(word);
+            line.push(' ');
+            line.push_str(word);
         }
     }
-    if !current.is_empty() {
-        out.push(current);
+
+    if !line.is_empty() {
+        out.push(line);
     }
     if out.is_empty() {
         out.push(String::new());
     }
+
     out
 }
 
-fn push_wrapped(lines: &mut Vec<Line<'static>>, prefix: &str, body: &str, style: Style, width: usize) {
-    let body_width = width.saturating_sub(prefix.len());
-    let wrapped = wrap_text(body, body_width.max(8));
-    for (i, row) in wrapped.into_iter().enumerate() {
-        let lead = if i == 0 {
+fn push_wrapped(lines: &mut Vec<Line<'static>>, prefix: &str, text: &str, style: Style, width: usize) {
+    let text_width = width.saturating_sub(prefix.len()).max(10);
+    for (idx, row) in wrap_text(text, text_width).into_iter().enumerate() {
+        let lead = if idx == 0 {
             prefix.to_string()
         } else {
             " ".repeat(prefix.len())
@@ -65,210 +48,218 @@ fn push_wrapped(lines: &mut Vec<Line<'static>>, prefix: &str, body: &str, style:
     }
 }
 
-pub fn build_resume_lines(area: Rect) -> Vec<Line<'static>> {
-    let width = area.width.max(40) as usize;
-    let compact = width < 74;
+fn make_meter(score: u8, width: usize) -> String {
+    let clamped = score.min(10) as usize;
+    let filled = (clamped * width + 9) / 10;
+    format!("{}{}", "#".repeat(filled), "-".repeat(width.saturating_sub(filled)))
+}
 
-    let sky = Style::default().fg(Color::LightBlue);
-    let hero = Style::default()
-        .fg(Color::LightYellow)
-        .add_modifier(Modifier::BOLD);
-    let accent = Style::default()
-        .fg(Color::LightRed)
-        .add_modifier(Modifier::BOLD);
-    let section = Style::default()
-        .fg(Color::LightGreen)
-        .add_modifier(Modifier::BOLD);
+fn star_line(width: usize, frame: u64, row: u64) -> String {
+    let mut chars = vec![' '; width];
+    let step = 7 + (row as usize % 3) * 3;
+    for i in (0..width).step_by(step) {
+        let p = (i + (frame as usize * (row as usize + 1))) % width;
+        chars[p] = if (frame + row + i as u64) % 3 == 0 { '*' } else { '.' };
+    }
+    chars.into_iter().collect()
+}
+
+fn marquee(width: usize, frame: u64, text: &str) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let mut track = String::from("   ");
+    track.push_str(text);
+    track.push_str("   ");
+    track.push_str(text);
+    track.push_str("   ");
+
+    let chars: Vec<char> = track.chars().collect();
+    let len = chars.len();
+    let start = (frame as usize) % len;
+    (0..width).map(|i| chars[(start + i) % len]).collect()
+}
+
+fn runner_line(width: usize, frame: u64) -> (String, String) {
+    if width < 16 {
+        return ("M>".to_string(), "=".repeat(width));
+    }
+
+    let runner = if frame % 2 == 0 { "[M>]" } else { "[M^]" };
+    let pos = (frame as usize) % (width - runner.len());
+
+    let mut top = vec![' '; width];
+    let mut base = vec!['='; width];
+
+    for (idx, ch) in runner.chars().enumerate() {
+        top[pos + idx] = ch;
+    }
+
+    for i in (4..width).step_by(9) {
+        let c = (i + (frame as usize % 4)) % width;
+        if top[c] == ' ' {
+            top[c] = if ((frame / 2) + i as u64) % 2 == 0 { 'o' } else { '+' };
+        }
+    }
+
+    if width > 8 {
+        base[width - 8] = '|';
+        base[width - 7] = '|';
+        base[width - 6] = '|';
+    }
+
+    (top.into_iter().collect(), base.into_iter().collect())
+}
+
+pub fn build_resume_lines(area: Rect, frame: u64) -> Vec<Line<'static>> {
+    let width = area.width.max(40) as usize;
+
+    let title = Style::default().fg(Color::LightYellow).add_modifier(Modifier::BOLD);
+    let accent = Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD);
+    let section = Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD);
     let text = Style::default().fg(Color::White);
     let dim = Style::default().fg(Color::Gray);
-    let link = Style::default()
-        .fg(Color::Cyan)
-        .add_modifier(Modifier::UNDERLINED);
+    let sky = Style::default().fg(Color::LightBlue);
+    let link = Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
-    let divider = repeat_pattern("=-", width);
-    let ground = repeat_pattern("▓", width);
+    let divider = "-".repeat(width);
 
-    lines.push(Line::from(Span::styled(repeat_pattern(" ", width), text)));
+    let glow = if frame % 4 < 2 { "LIVE" } else { "PIXEL" };
+    lines.push(Line::from(Span::styled(star_line(width, frame, 1), sky)));
+    lines.push(Line::from(Span::styled(star_line(width, frame, 2), sky)));
     lines.push(Line::from(vec![
-        Span::styled("      ☁        ☁        ☁  ", sky),
-        Span::styled("1UP PORTFOLIO", hero),
+        Span::styled(" PORTFOLIO WORLD :: ", accent),
+        Span::styled(glow, title),
     ]));
-    if compact {
-        lines.push(Line::from(vec![
-            Span::styled("  ▄▄▄ ", accent),
-            Span::styled("RIYAN KHAN", hero),
-            Span::styled(" | Backend Engineer", text),
-        ]));
-    } else {
-        lines.push(Line::from(vec![
-            Span::styled("  ▄▄▄▄   ▄▄   ▄▄   ▄▄▄▄  ", accent),
-            Span::styled("RIYAN KHAN", hero),
-            Span::styled("  //  Software Engineer", text),
-        ]));
-    }
     lines.push(Line::from(vec![
-        Span::styled("  HUD: ", dim),
-        Span::styled("Coins 128", accent),
-        Span::styled(" | World Mumbai-1", section),
-        Span::styled(" | Mission: Build scalable systems", text),
-    ]));
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-    lines.push(Line::from(vec![
-        Span::styled("Controls ", dim),
-        Span::styled("[j/k] [↑/↓] scroll ", text),
-        Span::styled("[g/G] home/end ", text),
-        Span::styled("[q] quit", accent),
-    ]));
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> PLAYER CARD", section)));
-    lines.push(Line::from(vec![
-        Span::styled("Name: ", dim),
-        Span::styled("Riyan Khan", hero),
+        Span::styled(" Creator: ", dim),
+        Span::styled("Riyan Khan", title),
         Span::styled(" | Role: ", dim),
-        Span::styled("Java + Node.js Developer", text),
+        Span::styled("Software Engineer (Backend)", text),
     ]));
+
+    let tape = marquee(width, frame, "JAVA  NODE  RUST  SYSTEM DESIGN  CLOUD  MICROSERVICES");
+    lines.push(Line::from(Span::styled(tape, dim)));
+
+    let (runner, platform) = runner_line(width, frame);
+    lines.push(Line::from(Span::styled(runner, accent)));
+    lines.push(Line::from(Span::styled(platform, Style::default().fg(Color::Green))));
+
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
     lines.push(Line::from(vec![
-        Span::styled("Email: ", dim),
+        Span::styled("Controls: ", dim),
+        Span::styled("[j/k] or [up/down] scroll", text),
+        Span::styled("  [g/G] jump", text),
+        Span::styled("  [q] quit", accent),
+    ]));
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
+
+    lines.push(Line::from(Span::styled("ABOUT ME", section)));
+    push_wrapped(
+        &mut lines,
+        "  ",
+        "I build backend systems that are fast, reliable, and easy to evolve. Over 3+ years I have shipped APIs, realtime services, and fintech/blockchain integrations used in production.",
+        text,
+        width,
+    );
+
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
+    lines.push(Line::from(Span::styled("WHAT I BRING", section)));
+    let impact = [
+        "Production backend engineering across Java, Node.js, and Rust.",
+        "Strong API design and service architecture for scalable systems.",
+        "CI/CD, containerized deployments, and cloud-native delivery workflows.",
+        "Ownership mindset: from design discussion to stable production rollouts.",
+    ];
+    for point in impact {
+        push_wrapped(&mut lines, "  + ", point, text, width);
+    }
+
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
+    lines.push(Line::from(Span::styled("SKILL LOADOUT", section)));
+    let meter_w = width.saturating_sub(34).clamp(10, 28);
+    let loadout = [
+        ("Java / Spring", 9_u8, "Spring Boot, WebFlux, clean service boundaries"),
+        ("Node / Nest", 9_u8, "Realtime systems, integration-heavy backends"),
+        ("Cloud / DevOps", 9_u8, "Docker, Kubernetes, AWS, GitHub Actions"),
+        ("Data", 8_u8, "MySQL, PostgreSQL, schema and query optimization"),
+    ];
+    for (name, score, summary) in loadout {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<14} ", name), dim),
+            Span::styled(make_meter(score, meter_w), accent),
+            Span::styled(format!("  {score}/10"), title),
+        ]));
+        push_wrapped(&mut lines, "    ", summary, text, width);
+    }
+
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
+    lines.push(Line::from(Span::styled("FEATURED BUILDS", section)));
+    let highlights = [
+        (
+            "Kryptoria",
+            "Backend platform for wallet and NFT interactions using Spring Boot + Node.js.",
+        ),
+        (
+            "Wrktalk",
+            "Realtime messaging engine with reliable sync and low-latency communication.",
+        ),
+        (
+            "Abra-Fi / DeFi",
+            "Solana-integrated backend and payment rails for production fintech use cases.",
+        ),
+    ];
+    for (project, detail) in highlights {
+        lines.push(Line::from(vec![
+            Span::styled("  > ", accent),
+            Span::styled(project, title),
+        ]));
+        push_wrapped(&mut lines, "    ", detail, text, width);
+    }
+
+    lines.push(Line::from(Span::styled(divider.clone(), dim)));
+    lines.push(Line::from(Span::styled("CONNECT", section)));
+    lines.push(Line::from(vec![
+        Span::styled("  Email: ", dim),
         Span::styled("riyankhanpyrex01@gmail.com", link),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("GitHub: ", dim),
+        Span::styled("  GitHub: ", dim),
         Span::styled("github.com/Pyrex01", link),
         Span::styled(" | LinkedIn: ", dim),
         Span::styled("riyan--khan", link),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("Base: ", dim),
+        Span::styled("  Location: ", dim),
         Span::styled("Mumbai, India", text),
-        Span::styled(" | Website: ", dim),
-        Span::styled("pyrex01.github.io/Pyrex01/", link),
     ]));
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> MAIN QUEST", section)));
-    push_wrapped(
-        &mut lines,
-        "  ",
-        "Java and Node.js developer with 3+ years building backend services and cloud-native systems. Strong in Spring Boot, REST APIs, Docker, Kubernetes, CI/CD, and scalable architecture.",
-        text,
-        width,
-    );
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> SKILL TREE", section)));
-    let meter_width = width.saturating_sub(40).clamp(10, 30);
-    let skills = [
-        ("Languages  ", 9, "Java, Node.js, Rust, SQL, Bash"),
-        ("Frameworks ", 9, "Spring Boot, WebFlux, NestJS"),
-        ("Databases  ", 8, "MySQL, PostgreSQL"),
-        ("DevOps     ", 9, "Docker, Kubernetes, AWS, CI/CD"),
-    ];
-    for (label, score, info) in skills {
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {label} "), dim),
-            Span::styled(progress_bar(score, meter_width), accent),
-            Span::styled(format!("  {}/10", score), hero),
-        ]));
-        push_wrapped(&mut lines, "    ", info, text, width);
-    }
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> BOSSES DEFEATED (PROJECTS)", section)));
-    let projects = [
-        (
-            "Kryptoria",
-            "Blockchain app with Node.js + Spring Boot backend and wallet integration for NFT flows.",
-        ),
-        (
-            "Wrktalk",
-            "Real-time chat platform with reliable message sync and Socket.IO low-latency delivery.",
-        ),
-        (
-            "BBPS Integration",
-            "Secure payment gateway modules for bill fetch, validation, receipts, and confirmations.",
-        ),
-        (
-            "Abra DeFi",
-            "Built core on/off-ramp and crypto payments integrations for USD <-> USDC operations.",
-        ),
-        (
-            "Abra-Fi",
-            "Solana-integrated reactive backend with Spring WebFlux and chain crawler pipelines.",
-        ),
-        (
-            "Walkie-Talkie App",
-            "Personal Rust + Android project for low-level audio processing and real-time UDP transport.",
-        ),
-    ];
-    for (name, detail) in projects {
-        lines.push(Line::from(vec![
-            Span::styled("  ▶ ", accent),
-            Span::styled(name, hero),
-        ]));
-        push_wrapped(&mut lines, "    ", detail, text, width);
-    }
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> EXPERIENCE", section)));
     lines.push(Line::from(vec![
-        Span::styled("  Software Engineer", hero),
-        Span::styled(" @ Rejolut Solutions Pvt Ltd", text),
+        Span::styled("  Open to: ", dim),
+        Span::styled("Backend / Platform Engineering roles", title),
     ]));
-    lines.push(Line::from(Span::styled("  May 2022 - Present", dim)));
-    let exp_points = [
-        "Designed and shipped RESTful APIs using Spring Boot and Node.js.",
-        "Implemented Docker + Kubernetes based deployment workflows.",
-        "Automated delivery with GitHub Actions and CI/CD pipelines.",
-        "Contributed in reviews, sprint planning, and production hardening.",
-    ];
-    for point in exp_points {
-        push_wrapped(&mut lines, "  • ", point, text, width);
-    }
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
 
-    lines.push(Line::from(Span::styled(">> EDUCATION", section)));
-    lines.push(Line::from(Span::styled(
-        "  BSc IT - Kalsekar Degree College (2019 - 2022)",
-        text,
-    )));
-    lines.push(Line::from(Span::styled(
-        "  MCA - Lovely Professional University (2022 - 2026)",
-        text,
-    )));
-    lines.push(Line::from(Span::styled(divider.clone(), dim)));
-
-    lines.push(Line::from(Span::styled(">> SIDE QUESTS", section)));
-    let hobbies = [
-        "Exploring ARM and IoT devices",
-        "Low-level systems in Rust, C, and Go",
-        "Custom networking and Kubernetes routing experiments",
-    ];
-    for hobby in hobbies {
-        push_wrapped(&mut lines, "  * ", hobby, text, width);
-    }
     lines.push(Line::from(Span::styled(divider, dim)));
     lines.push(Line::from(vec![
-        Span::styled("  PIPE EXIT ", accent),
-        Span::styled("Thanks for visiting this terminal world.", text),
+        Span::styled(" THANKS FOR PLAYING ", accent),
+        Span::styled("Built with Rust + ratatui.", text),
     ]));
-    lines.push(Line::from(Span::styled(ground, Style::default().fg(Color::Green))));
 
     lines
 }
 
-pub fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16) -> usize {
-    let lines = build_resume_lines(area);
+pub fn render_resume_ui(buffer: &mut Buffer, area: Rect, scroll_offset: u16, frame: u64) -> usize {
+    let lines = build_resume_lines(area, frame);
     let total_lines = lines.len();
+
     let start_y = scroll_offset as usize;
     let max_lines = area.height as usize;
 
     for (idx, line) in lines.iter().enumerate() {
         let y_pos = idx.saturating_sub(start_y);
         if y_pos < max_lines && idx >= start_y {
-            let paragraph = Paragraph::new(line.clone());
-            paragraph.render(Rect::new(0, y_pos as u16, area.width, 1), buffer);
+            Paragraph::new(line.clone()).render(Rect::new(0, y_pos as u16, area.width, 1), buffer);
         }
     }
 
