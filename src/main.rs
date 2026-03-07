@@ -9,7 +9,9 @@ use russh::*;
 use russh::keys::ssh_key::rand_core::OsRng;
 use russh::server::{Msg, Server as _, Session};
 use std::collections::HashMap;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
@@ -44,6 +46,10 @@ impl server::Server for ServerHandler {
 
 impl server::Handler for ServerHandler {
     type Error = russh::Error;
+
+    async fn auth_none(&mut self, _user: &str) -> Result<server::Auth, Self::Error> {
+        Ok(server::Auth::Accept)
+    }
 
     async fn auth_password(
         &mut self,
@@ -1120,14 +1126,15 @@ async fn main() -> Result<()> {
 }
 
 async fn start_ssh_server(connection_count: Arc<AtomicU32>) -> Result<()> {
-    // Generate server keys
-    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?;
+    let key_path = temp_server_key_path();
+    let key = load_or_create_server_key(&key_path)?;
     
     // Create server config
     let config = Arc::new(server::Config {
         inactivity_timeout: Some(Duration::from_secs(3600)),
         auth_rejection_time: Duration::from_secs(3),
         auth_rejection_time_initial: Some(Duration::from_secs(0)),
+        methods: MethodSet::from(&[MethodKind::None][..]),
         keys: vec![key],
         ..Default::default()
     });
@@ -1136,8 +1143,9 @@ async fn start_ssh_server(connection_count: Arc<AtomicU32>) -> Result<()> {
     let socket = TcpListener::bind("127.0.0.1:2222").await?;
     
     eprintln!("SSH server listening on 127.0.0.1:2222");
-    eprintln!("Connect with: ssh -p 2222 user@127.0.0.1");
-    eprintln!("(Any password will work for demo)");
+    eprintln!("Connect with: ssh -p 2222 localhost");
+    eprintln!("Host key path: {}", key_path.display());
+    eprintln!("Authentication: none (no user/password prompt)");
 
     let mut server = ServerHandler {
         connection_count,
@@ -1150,4 +1158,28 @@ async fn start_ssh_server(connection_count: Arc<AtomicU32>) -> Result<()> {
     server_task.await?;
 
     Ok(())
+}
+
+fn temp_server_key_path() -> PathBuf {
+    std::env::temp_dir().join("ssh-tui").join("server_ed25519")
+}
+
+fn load_or_create_server_key(path: &Path) -> Result<russh::keys::PrivateKey> {
+    if path.exists() {
+        if let Ok(key) = russh::keys::PrivateKey::read_openssh_file(path) {
+            return Ok(key);
+        }
+        eprintln!(
+            "Warning: failed to read SSH host key at {}, generating a new one.",
+            path.display()
+        );
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let key = russh::keys::PrivateKey::random(&mut OsRng, russh::keys::Algorithm::Ed25519)?;
+    key.write_openssh_file(path, russh::keys::ssh_key::LineEnding::LF)?;
+    Ok(key)
 }
